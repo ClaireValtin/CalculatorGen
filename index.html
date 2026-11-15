@@ -188,6 +188,7 @@ table.sheet { width: 100%; border-collapse: collapse; font-size: 14px; }
         <button class="btn" type="button" id="dil-add">+ Ligne</button>
         <button class="btn quiet" type="button" id="dil-clear">Vider</button>
         <span class="sp"></span>
+        <button class="btn" type="button" id="dil-xlsx">Excel</button>
         <button class="btn" type="button" id="dil-copy">Copier</button>
         <button class="btn" type="button" id="dil-print">Imprimer</button>
       </div>
@@ -235,6 +236,55 @@ const store = {
   get(k, def) { try { const v = JSON.parse(localStorage.getItem("calc:" + k)); return v ?? def; } catch (e) { return def; } },
   set(k, v) { try { localStorage.setItem("calc:" + k, JSON.stringify(v)); } catch (e) {} }
 };
+
+/* ---------- Export Excel sans bibliothèque : un .xlsx est un zip (non compressé ici) de fichiers XML ----------
+   rows : tableau de lignes ; cellule = nombre, texte, ou [valeur, style] avec style 1 = gras, 2 = nombre à 2 décimales. */
+function xlsxBlob(rows, widths) {
+  const x = v => String(v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const sheet = rows.map((row, r) => `<row r="${r + 1}">` + row.map((cell, c) => {
+    const [v, st] = Array.isArray(cell) ? cell : [cell, 0];
+    if (v === "" || v === null || v === undefined) return "";
+    const ref = String.fromCharCode(65 + c) + (r + 1), s = st ? ` s="${st}"` : "";
+    return typeof v === "number" && Number.isFinite(v)
+      ? `<c r="${ref}"${s}><v>${v}</v></c>`
+      : `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${x(v)}</t></is></c>`;
+  }).join("") + "</row>").join("");
+  const head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+  const rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const pkg = "http://schemas.openxmlformats.org/package/2006/";
+  const ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.";
+  const files = {
+    "[Content_Types].xml": `${head}<Types xmlns="${pkg}content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${ct}sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${ct}worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="${ct}styles+xml"/></Types>`,
+    "_rels/.rels": `${head}<Relationships xmlns="${pkg}relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    "xl/workbook.xml": `${head}<workbook xmlns="${main}" xmlns:r="${rel}"><sheets><sheet name="Dilutions" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    "xl/_rels/workbook.xml.rels": `${head}<Relationships xmlns="${pkg}relationships"><Relationship Id="rId1" Type="${rel}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${rel}/styles" Target="styles.xml"/></Relationships>`,
+    "xl/styles.xml": `${head}<styleSheet xmlns="${main}"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="2" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
+    "xl/worksheets/sheet1.xml": `${head}<worksheet xmlns="${main}"><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols><sheetData>${sheet}</sheetData></worksheet>`
+  };
+  const crcTable = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xEDB88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
+  const crc32 = b => { let c = ~0; for (const v of b) c = crcTable[(c ^ v) & 255] ^ (c >>> 8); return ~c >>> 0; };
+  const le = (n, size) => Array.from({ length: size }, (_, i) => (n >>> (8 * i)) & 255);
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  Object.keys(files).forEach(name => {
+    const n = enc.encode(name), d = enc.encode(files[name]);
+    // version, drapeau UTF-8, pas de compression, heure, date (01/01/2024), crc, tailles, longueur du nom
+    const meta = [...le(20, 2), ...le(0x800, 2), ...le(0, 2), ...le(0, 2), ...le(0x5821, 2), ...le(crc32(d), 4), ...le(d.length, 4), ...le(d.length, 4), ...le(n.length, 2), ...le(0, 2)];
+    parts.push(new Uint8Array([0x50, 0x4B, 3, 4, ...meta]), n, d);
+    central.push(new Uint8Array([0x50, 0x4B, 1, 2, ...le(20, 2), ...meta, ...le(0, 2), ...le(0, 2), ...le(0, 2), ...le(0, 4), ...le(offset, 4)]), n);
+    offset += 30 + n.length + d.length;
+  });
+  const cSize = central.reduce((a, b) => a + b.length, 0), count = Object.keys(files).length;
+  const end = new Uint8Array([0x50, 0x4B, 5, 6, ...le(0, 4), ...le(count, 2), ...le(count, 2), ...le(cSize, 4), ...le(offset, 4), ...le(0, 2)]);
+  return new Blob([...parts, ...central, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 
 /* ---------- Thème ---------- */
 (function () {
@@ -493,6 +543,29 @@ document.querySelectorAll("[data-save]").forEach(i => {
     cur().rows = blanks(); save(); buildTable(); focus(0, "name");
   });
   $("#dil-print").addEventListener("click", () => print());
+  $("#dil-xlsx").addEventListener("click", function () {
+    const p = params(), c = cfg(), r2 = v => Number.isFinite(v) ? [Math.round(v * 100) / 100, 2] : "";
+    const n = v => Number.isFinite(num(v)) ? num(v) : v;
+    const title = c.size ? "Dilution des bibliothèques" : "Dilution des échantillons d'ADN";
+    const rows = [[[title, 1]], []];
+    c.params.forEach(prm => rows.push([prm.label + " (" + prm.unit + ")", n(cur().params[prm.id])]));
+    if (!c.size && p.target > 0 && p.vFinal > 0) rows.push(["ADN par tube (ng)", r2(p.target * p.vFinal)]);
+    rows.push([]);
+    rows.push(["Nom", "Conc. (ng/µL)"].concat(c.size ? ["Taille (pb)", "Molarité (nM)"] : [],
+      [c.takeLabel + " (µL)", "Diluant (µL)", "Remarque", "Fait"]).map(h => [h, 1]));
+    let count = 0;
+    cur().rows.forEach(row => {
+      const r = compute(row, p);
+      if (r.st === "empty") return;
+      count++;
+      rows.push([row.name, n(row.conc)].concat(c.size ? [num(row.size) > 0 ? num(row.size) : p.bp, r2(r.nM)] : [],
+        [r2(r.v1), r2(r.v2), [r.label, r.note].filter(Boolean).join(" : ")]));
+    });
+    if (!count) { this.textContent = "Rien à exporter"; setTimeout(() => { this.textContent = "Excel"; }, 1800); return; }
+    const d = new Date(), day = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    download(xlsxBlob(rows, [26, 14].concat(c.size ? [12, 14] : [], [14, 14, 48, 6])),
+      (c.size ? "dilution_bibliotheques_" : "dilution_adn_") + day + ".xlsx");
+  });
   $("#dil-copy").addEventListener("click", function () {
     const p = params(), c = cfg(), f = v => Number.isFinite(v) ? fmt(v, 2).replace(/\s/g, "") : "";
     const lines = [["Nom", "Conc. (ng/µL)"].concat(c.size ? ["Taille (pb)", "nM"] : [], [c.takeLabel + " (µL)", "Diluant (µL)", "Remarque"])];
