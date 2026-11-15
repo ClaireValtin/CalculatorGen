@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Calculateurs</title>
+<script>
+  // Thème appliqué avant l'affichage : choix enregistré, sinon réglage du système.
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("calc:theme"); } catch (e) {}
+    if (t !== "dark" && t !== "light") t = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<style>
+:root {
+  --bg: #f3f5f7; --surface: #ffffff; --sunken: #f0f3f5; --line: #d8dee3;
+  --fg: #14212a; --muted: #5d6d77; --accent: #0b6b72; --accent-ink: #ffffff; --accent-soft: #dff0f1;
+  --ok: #1b7443; --ok-soft: #dff3e7; --info: #1d5fa8; --info-soft: #e0ecfa;
+  --warn: #8a5a00; --warn-soft: #fbefd3; --err: #a9322c; --err-soft: #f9e2e0;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --r: 8px;
+}
+:root[data-theme="dark"] {
+  --bg: #0e1519; --surface: #162027; --sunken: #101920; --line: #2a3a44;
+  --fg: #e4ecef; --muted: #93a5ae; --accent: #52c3c6; --accent-ink: #062224; --accent-soft: #15383b;
+  --ok: #5fd08e; --ok-soft: #143524; --info: #7db4f0; --info-soft: #15304d;
+  --warn: #e3b04b; --warn-soft: #3a2c0a; --err: #f08a83; --err-soft: #40201e;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans); -webkit-text-size-adjust: 100%; }
+button, input { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+/* Barre du haut : onglets + thème */
+.top { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 860px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 8px; }
+.tabs { display: flex; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { border: 0; background: none; padding: 14px 12px 12px; border-bottom: 2px solid transparent; color: var(--muted);
+  font-weight: 600; white-space: nowrap; cursor: pointer; }
+.tabs button:hover { color: var(--fg); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.theme { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface);
+  border-radius: 999px; padding: 6px 12px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.theme:hover { color: var(--fg); }
+.theme svg { width: 15px; height: 15px; }
+:root[data-theme="dark"] .i-moon, :root:not([data-theme="dark"]) .i-sun { display: none; }
+
+main { max-width: 860px; margin: 0 auto; padding: 20px 16px 48px; }
+.tool { display: none; }
+.tool.active { display: block; }
+.tool.narrow { max-width: 460px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 14px; letter-spacing: -0.01em; }
+h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); margin-top: 2px; letter-spacing: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; margin-bottom: 12px; }
+
+/* Champs */
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+.field { display: block; min-width: 0; }
+.field > span { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+.inp { display: flex; align-items: center; background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; }
+.inp:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.inp input { flex: 1; min-width: 0; width: 100%; border: 0; background: none; outline: 0; padding: 9px 10px;
+  font-family: var(--mono); font-size: 16px; }
+.inp em { font-style: normal; font-size: 12px; color: var(--muted); padding-right: 10px; white-space: nowrap; }
+.inp.big input { font-size: 22px; padding: 12px; }
+.inp.bad { border-color: var(--err); }
+.inp input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.inp input::-webkit-outer-spin-button, .inp input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.fields.two { grid-template-columns: 1fr 1fr; }
+.hint { font-size: 13px; color: var(--muted); margin: 12px 0 0; }
+.hint b { color: var(--fg); font-family: var(--mono); font-weight: 600; }
+.hint .alert { color: var(--warn); }
+
+/* Résultats */
+.results { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.res { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; }
+.res .k { font-size: 12px; font-weight: 600; color: var(--muted); }
+.res .v { font-family: var(--mono); font-size: 30px; font-weight: 600; line-height: 1.2; color: var(--accent); overflow-wrap: anywhere; }
+.res .v span { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 4px; }
+.res .s { font-size: 12px; color: var(--muted); }
+.res.single { grid-column: 1 / -1; }
+.res.tone-ok .v { color: var(--ok); } .res.tone-info .v { color: var(--info); }
+.res.tone-warn .v { color: var(--warn); } .res.tone-err .v { color: var(--err); }
+.res.off .v { color: var(--muted); }
+
+.chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.chip.ok { background: var(--ok-soft); color: var(--ok); } .chip.info { background: var(--info-soft); color: var(--info); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); } .chip.err { background: var(--err-soft); color: var(--err); }
+.msg { color: var(--err); font-size: 13px; margin: 0 0 12px; }
+
+/* Sélecteur de mode */
+.seg { display: inline-flex; background: var(--sunken); border: 1px solid var(--line); border-radius: 8px; padding: 3px; margin-bottom: 12px; }
+.seg button { border: 0; background: none; border-radius: 6px; padding: 6px 14px; font-weight: 600; font-size: 13px; color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+
+/* Tableau de dilution */
+.sheet-wrap { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }
+table.sheet { width: 100%; border-collapse: collapse; font-size: 14px; }
+.sheet th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 6px 8px; white-space: nowrap; }
+.sheet th small { font-weight: 400; }
+.sheet td { padding: 3px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+.sheet .n { text-align: right; font-family: var(--mono); white-space: nowrap; }
+.sheet .idx { color: var(--muted); font-size: 12px; width: 1%; padding-left: 0; }
+.sheet td.in { padding: 3px; }
+.sheet td.in input { width: 100%; min-width: 70px; border: 1px solid transparent; border-radius: 5px; background: var(--sunken);
+  padding: 7px 8px; outline: 0; font-size: 15px; }
+.sheet td.in.num input { text-align: right; font-family: var(--mono); min-width: 76px; }
+.sheet td.in.name input { min-width: 110px; }
+.sheet td.in input:focus { border-color: var(--accent); background: var(--surface); }
+.sheet td.in input.bad { border-color: var(--err); }
+.sheet .out { font-weight: 600; font-size: 15px; }
+.sheet .note { font-size: 12px; color: var(--muted); min-width: 150px; }
+.sheet .note .chip { margin-right: 6px; }
+.sheet .rm { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 4px; cursor: pointer; }
+.sheet .rm:hover { color: var(--err); background: var(--err-soft); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.bar .sp { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.quiet { border-color: transparent; color: var(--muted); }
+
+@media (max-width: 520px) {
+  .results { grid-template-columns: 1fr; }
+  .res .v { font-size: 26px; }
+  .theme b { display: none; }
+  .sheet .idx, .sheet .nm, .sheet .note .txt { display: none; }
+  .sheet td.in input, .sheet td.in.num input { min-width: 58px; padding: 7px 6px; }
+  .sheet td.in.name input { min-width: 64px; }
+  .sheet .note { min-width: 0; }
+  .sheet th, .sheet td { padding-left: 4px; padding-right: 4px; }
+}
+.theme b { font-weight: 600; }
+
+@media print {
+  html[data-theme] { --bg: #fff; --surface: #fff; --sunken: #fff; --line: #999; --fg: #000; --muted: #333; --accent: #000;
+    --ok: #000; --warn: #000; --err: #000; --info: #000; --ok-soft: #fff; --warn-soft: #fff; --err-soft: #fff; --info-soft: #fff; }
+  .top, .no-print, .sheet .rm, tr.empty { display: none !important; }
+  main { max-width: none; padding: 0; }
+  .card, .res { border: 0; padding: 0; }
+  .inp, .sheet td.in input { border: 0; box-shadow: none; }
+  .chip { padding: 0; }
+  .sheet td, .sheet th { border: 1px solid #999; padding: 4px 6px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Calculateurs"></nav>
+    <button class="theme" type="button" id="theme">
+      <svg class="i-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z"/></svg>
+      <svg class="i-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3 3l1 1M12 12l1 1M3 13l1-1M12 4l1-1"/></svg>
+      <b id="theme-label">Sombre</b>
+    </button>
+  </div>
+</header>
+
+<main>
+  <!--
+    Un calculateur = une <section class="tool"> ; l'onglet est créé automatiquement à partir de data-tab.
+    Champs avec data-save="clé" : valeur mémorisée dans le navigateur.
+  -->
+
+  <!-- ============ Dilution ADN / bibliothèques (NGS) ============ -->
+  <section class="tool" id="dilution" data-tab="Dilution NGS">
+    <div class="seg no-print" id="dil-mode">
+      <button type="button" data-mode="adn">ADN · ng/µL</button>
+      <button type="button" data-mode="lib">Bibliothèques · pM</button>
+    </div>
+    <div class="card">
+      <div class="fields" id="dil-params"></div>
+      <p class="hint" id="dil-summary"></p>
+    </div>
+    <div class="card">
+      <div class="sheet-wrap">
+        <table class="sheet">
+          <thead><tr id="dil-head"></tr></thead>
+          <tbody id="dil-body"></tbody>
+        </table>
+      </div>
+      <div class="bar no-print">
+        <button class="btn" type="button" id="dil-add">+ Ligne</button>
+        <button class="btn quiet" type="button" id="dil-clear">Vider</button>
+        <span class="sp"></span>
+        <button class="btn" type="button" id="dil-copy">Copier</button>
+        <button class="btn" type="button" id="dil-print">Imprimer</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Ensemencement cytogénétique ============ -->
+  <section class="tool narrow" id="ensemencement" data-tab="Ensemencement">
+    <h1>Ensemencement <small>Volume de culot à mettre en culture</small></h1>
+    <div class="card">
+      <div class="fields two">
+        <label class="field" style="grid-column:1/-1"><span>Leucocytes (GB)</span>
+          <div class="inp big"><input id="ens-gb" type="text" inputmode="decimal" autocomplete="off" placeholder="7500"><em>GB/µL</em></div></label>
+        <label class="field"><span>Facteur de dilution</span>
+          <div class="inp"><input id="ens-dil" type="text" inputmode="decimal" autocomplete="off" value="10" data-save="ens-dil"><em>×</em></div></label>
+        <label class="field"><span>Volume de culture</span>
+          <div class="inp"><input id="ens-vol" type="text" inputmode="decimal" autocomplete="off" value="8" data-save="ens-vol"><em>mL</em></div></label>
+      </div>
+    </div>
+    <div class="results" id="ens-out"></div>
+  </section>
+
+  <!-- ============ LMC : maladie résiduelle ============ -->
+  <section class="tool narrow" id="lmc" data-tab="LMC">
+    <h1>LMC · maladie résiduelle <small>BCR-ABL1 / ABL1 = 122 × 1,98<sup>ΔCt</sup></small></h1>
+    <div class="card">
+      <label class="field"><span>ΔCt</span>
+        <div class="inp big"><input id="lmc-dct" type="number" step="any" autocomplete="off" placeholder="-8.34"></div></label>
+    </div>
+    <div class="results" id="lmc-out"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+/* ---------- Outils communs ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const num = v => {
+  const s = String(v ?? "").trim().replace(/\s/g, "").replace(",", ".").replace("−", "-");
+  return s === "" ? NaN : Number(s);
+};
+const fmt = (n, d = 2) => Number.isFinite(n) ? n.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = {
+  get(k, def) { try { const v = JSON.parse(localStorage.getItem("calc:" + k)); return v ?? def; } catch (e) { return def; } },
+  set(k, v) { try { localStorage.setItem("calc:" + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+/* ---------- Thème ---------- */
+(function () {
+  const root = document.documentElement, btn = $("#theme");
+  const sync = () => {
+    const dark = root.getAttribute("data-theme") === "dark";
+    $("#theme-label").textContent = dark ? "Clair" : "Sombre";
+    btn.setAttribute("aria-label", dark ? "Passer en mode clair" : "Passer en mode sombre");
+  };
+  btn.addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("calc:theme", next); } catch (e) {}
+    sync();
+  });
+  sync();
+})();
+
+/* ---------- Onglets (créés à partir des sections .tool) ---------- */
+(function () {
+  const tools = [...document.querySelectorAll(".tool")], nav = $("#tabs");
+  const show = id => {
+    if (!tools.some(t => t.id === id)) id = tools[0].id;
+    tools.forEach(t => t.classList.toggle("active", t.id === id));
+    nav.querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.id === id)));
+    store.set("tab", id);
+  };
+  tools.forEach(t => {
+    const b = document.createElement("button");
+    b.type = "button"; b.role = "tab"; b.dataset.id = t.id; b.textContent = t.dataset.tab;
+    b.addEventListener("click", () => { show(t.id); try { history.replaceState(null, "", "#" + t.id); } catch (e) {} });
+    nav.appendChild(b);
+  });
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || store.get("tab", ""));
+})();
+
+/* ---------- Champs mémorisés (data-save) ---------- */
+document.querySelectorAll("[data-save]").forEach(i => {
+  const v = store.get("f:" + i.dataset.save, null);
+  if (v !== null) i.value = v;
+  i.addEventListener("input", () => store.set("f:" + i.dataset.save, i.value));
+});
+
+/* ============ Ensemencement ============ */
+(function () {
+  const TYPES = [{ name: "J1", days: "1 jour", conc: 1.8 }, { name: "J2", days: "2 jours", conc: 1.5 }];
+  const gb = $("#ens-gb"), dil = $("#ens-dil"), vol = $("#ens-vol"), out = $("#ens-out");
+  function calc() {
+    const g = num(gb.value), d = num(dil.value), v = num(vol.value);
+    const ready = g > 0 && d > 0 && v > 0;
+    [gb, dil, vol].forEach(i => i.parentNode.classList.toggle("bad", i.value.trim() !== "" && !(num(i.value) > 0)));
+    const cInit = g * d / 1000; // millions de cellules / mL
+    out.innerHTML = TYPES.map(t => {
+      const ul = t.conc * v / cInit * 1000;
+      const tooMuch = ready && ul > v * 1000;
+      return `<div class="res ${ready ? (tooMuch ? "tone-err" : "") : "off"}">
+        <div class="k">${t.name} · ${t.days} · ${fmt(t.conc, 1)} M/mL</div>
+        <div class="v">${ready ? fmt(ul, ul < 100 ? 1 : 0) : "—"}<span>µL</span></div>
+        ${tooMuch ? '<div class="s">Dépasse le volume de culture : pas assez de cellules.</div>' : ""}
+      </div>`;
+    }).join("") + (ready ? `<div class="res single"><div class="s">Suspension : ${fmt(cInit, 2)} M/mL (${fmt(g * d, 0)} GB/µL)</div></div>` : "");
+  }
+  [gb, dil, vol].forEach(i => i.addEventListener("input", calc));
+  calc();
+})();
+
+/* ============ LMC ============ */
+(function () {
+  // Seuils de réponse moléculaire (% BCR-ABL1/ABL1), du plus profond au moins profond.
+  const LEVELS = [
+    [0.001, "RM5", "ok"], [0.0032, "RM4.5", "ok"], [0.01, "RM4", "ok"],
+    [0.1, "RMM · RM3", "info"], [1, "RM2", "warn"], [10, "RM1", "err"]
+  ];
+  const inp = $("#lmc-dct"), out = $("#lmc-out");
+  function calc() {
+    const d = num(inp.value);
+    if (!Number.isFinite(d)) {
+      out.innerHTML = '<div class="res single off"><div class="k">BCR-ABL1 / ABL1</div><div class="v">—<span>%</span></div></div>';
+      return;
+    }
+    const a = 122 * Math.pow(1.98, d);
+    const lvl = LEVELS.find(l => a <= l[0]) || [null, "Pas de réponse moléculaire", "err"];
+    const shown = a.toLocaleString("fr-FR", { maximumSignificantDigits: 3 });
+    out.innerHTML = `<div class="res single tone-${lvl[2]}">
+        <div class="k">BCR-ABL1 / ABL1</div>
+        <div class="v">${shown}<span>%</span></div>
+        <div class="s"><span class="chip ${lvl[2]}">${lvl[1]}${lvl[0] ? " (≤ " + lvl[0].toLocaleString("fr-FR", { maximumSignificantDigits: 2 }) + " %)" : " (> 10 %)"}</span></div>
+      </div>
+      <div class="res single"><div class="k">Réduction</div><div class="v" style="font-size:20px;color:var(--fg)">${fmt(-Math.log10(a / 100), 2)}<span>log</span></div></div>`;
+  }
+  inp.addEventListener("input", calc);
+  calc();
+})();
+
+/* ============ Dilution NGS ============ */
+(function () {
+  const MODES = {
+    adn: {
+      unit: "ng/µL", takeLabel: "ADN",
+      params: [
+        { id: "target", label: "Concentration cible", unit: "ng/µL", def: "0,67" },
+        { id: "vFinal", label: "Volume final", unit: "µL", def: "50" },
+        { id: "minPip", label: "Pipetage minimum", unit: "µL", def: "1" }
+      ]
+    },
+    lib: {
+      unit: "pM", takeLabel: "Biblio.", size: true,
+      params: [
+        { id: "target", label: "Concentration cible", unit: "pM", def: "50" },
+        { id: "vFinal", label: "Volume final", unit: "µL", def: "100" },
+        { id: "bp", label: "Taille par défaut", unit: "pb", def: "197" },
+        { id: "minPip", label: "Pipetage minimum", unit: "µL", def: "1" }
+      ]
+    }
+  };
+  const PRE = [[10, "5 + 45 µL"], [100, "2 + 198 µL"], [1000, "1:10 puis 1:100"]];
+  const blank = () => ({ name: "", conc: "", size: "" });
+  const blanks = () => [blank(), blank(), blank(), blank()];
+
+  const state = store.get("dilution", {});
+  if (!MODES[state.mode]) state.mode = "adn";
+  Object.keys(MODES).forEach(m => {
+    const s = state[m] = state[m] || {};
+    s.params = s.params || {};
+    MODES[m].params.forEach(p => { if (s.params[p.id] === undefined) s.params[p.id] = p.def; });
+    if (!Array.isArray(s.rows) || !s.rows.length) s.rows = blanks();
+  });
+  const save = () => store.set("dilution", state);
+  const cfg = () => MODES[state.mode], cur = () => state[state.mode];
+  const params = () => Object.fromEntries(cfg().params.map(p => [p.id, num(cur().params[p.id])]));
+
+  // C1·V1 = C2·V2 ; si le volume à prélever est sous le minimum pipetable, on passe par une prédilution.
+  function dilute(stock, target, vFinal, minPip) {
+    if (!Number.isFinite(stock)) return { st: "empty" };
+    if (stock <= 0) return { st: "err", label: "Invalide" };
+    if (!(target > 0) || !(vFinal > 0) || !(minPip >= 0)) return { st: "err", label: "Paramètres ?" };
+    const v1 = target * vFinal / stock;
+    if (v1 > vFinal + 1e-9) return { st: "err", label: "Trop faible", note: "sous la cible, utiliser pur" };
+    if (v1 >= minPip) return { st: "ok", v1, v2: vFinal - v1 };
+    for (const [f, recipe] of PRE) {
+      const v = v1 * f;
+      if (v >= minPip && v <= vFinal) return { st: "warn", label: "Prédiluer 1:" + f, note: recipe + ", puis prélever dedans", v1: v, v2: vFinal - v, pre: f };
+    }
+    return { st: "err", label: "Trop concentré", note: "augmenter le volume final" };
+  }
+  function compute(row, p) {
+    const c = num(row.conc);
+    if (!cfg().size) return dilute(c, p.target, p.vFinal, p.minPip);
+    if (!Number.isFinite(c)) return { st: "empty" };
+    const bp = num(row.size) > 0 ? num(row.size) : p.bp;
+    const nM = c * 1e6 / (660 * bp); // 660 g/mol par paire de bases
+    const r = dilute(nM * 1000, p.target, p.vFinal, p.minPip);
+    if (nM > 0 && Number.isFinite(nM)) r.nM = nM;
+    return r;
+  }
+
+  const head = $("#dil-head"), body = $("#dil-body"), box = $("#dil-params");
+  const cols = () => cfg().size ? ["name", "conc", "size"] : ["name", "conc"];
+
+  function buildParams() {
+    box.innerHTML = cfg().params.map(p =>
+      `<label class="field"><span>${p.label}</span><div class="inp"><input type="text" inputmode="decimal" autocomplete="off"
+        data-p="${p.id}" value="${esc(cur().params[p.id])}"><em>${p.unit}</em></div></label>`).join("");
+    box.querySelectorAll("input").forEach(i => i.addEventListener("input", () => {
+      cur().params[i.dataset.p] = i.value; save(); results();
+    }));
+  }
+  function buildTable() {
+    const c = cfg();
+    head.innerHTML = `<th class="idx"></th><th>Nom</th><th class="n">Conc. <small>ng/µL</small></th>` +
+      (c.size ? `<th class="n">Taille <small>pb</small></th><th class="n nm">nM</th>` : "") +
+      `<th class="n">${c.takeLabel} <small>µL</small></th><th class="n">Diluant <small>µL</small></th><th></th><th class="no-print"></th>`;
+    body.innerHTML = cur().rows.map((r, i) =>
+      `<tr data-i="${i}"><td class="idx">${i + 1}</td>
+        <td class="in name"><input data-c="name" type="text" autocomplete="off" aria-label="Nom ${i + 1}" value="${esc(r.name || "")}"></td>
+        <td class="in num"><input data-c="conc" type="text" inputmode="decimal" autocomplete="off" aria-label="Concentration ${i + 1}" value="${esc(r.conc || "")}"></td>` +
+      (c.size ? `<td class="in num"><input data-c="size" type="text" inputmode="decimal" autocomplete="off" aria-label="Taille ${i + 1}" value="${esc(r.size || "")}"></td><td class="n nm" data-o="nM"></td>` : "") +
+      `<td class="n out" data-o="v1"></td><td class="n out" data-o="v2"></td><td class="note" data-o="note"></td>
+        <td class="no-print"><button class="rm" type="button" tabindex="-1" aria-label="Supprimer la ligne ${i + 1}">×</button></td></tr>`).join("");
+    results();
+  }
+  function results() {
+    const p = params(), c = cfg();
+    box.querySelectorAll("input").forEach(i => i.parentNode.classList.toggle("bad", !(num(i.value) > 0)));
+    let n = 0;
+    body.querySelectorAll("tr").forEach((tr, i) => {
+      const row = cur().rows[i], r = compute(row, p);
+      const set = (k, v) => { const td = tr.querySelector(`[data-o="${k}"]`); if (td) td.innerHTML = v; };
+      const has = r.st === "ok" || r.st === "warn";
+      if (r.st !== "empty") n++;
+      tr.classList.toggle("empty", r.st === "empty" && !(row.name || "").trim());
+      set("nM", r.nM ? fmt(r.nM, 2) : "");
+      set("v1", has ? fmt(r.v1, 2) : (r.st === "empty" ? "" : "—"));
+      set("v2", has ? fmt(r.v2, 2) : (r.st === "empty" ? "" : "—"));
+      set("note", r.label ? `<span class="chip ${r.st}">${r.label}</span><span class="txt">${r.note || ""}</span>` : "");
+      tr.querySelectorAll('input[data-c="conc"], input[data-c="size"]').forEach(inp =>
+        inp.classList.toggle("bad", inp.value.trim() !== "" && !(num(inp.value) > 0)));
+      const size = tr.querySelector('input[data-c="size"]');
+      if (size) size.placeholder = p.bp > 0 ? String(p.bp) : "";
+    });
+    const ok = p.target > 0 && p.vFinal > 0;
+    let s = ok ? `Chaque tube : <b>${fmt(p.vFinal, 0)} µL</b> à <b>${cur().params.target.trim()} ${c.unit}</b>` : "";
+    if (ok && !c.size) s += ` = <b>${fmt(p.target * p.vFinal, 1)} ng</b>`;
+    if (ok && c.size && (p.target < 25 || p.target > 60)) s += ` · <span class="alert">cible hors plage 25–60 pM</span>`;
+    $("#dil-summary").innerHTML = s;
+    $("#dil-summary").hidden = !s;
+  }
+  function focus(i, c) {
+    const el = body.querySelector(`tr[data-i="${i}"] input[data-c="${c}"]`);
+    if (el) { el.focus(); el.select(); }
+  }
+
+  body.addEventListener("input", e => {
+    const tr = e.target.closest("tr"); if (!tr || !e.target.dataset.c) return;
+    cur().rows[+tr.dataset.i][e.target.dataset.c] = e.target.value; save(); results();
+  });
+  body.addEventListener("keydown", e => {
+    if (e.key !== "Enter" || !e.target.dataset.c) return;
+    e.preventDefault();
+    const i = +e.target.closest("tr").dataset.i, c = e.target.dataset.c;
+    if (i === cur().rows.length - 1) { cur().rows.push(blank()); save(); buildTable(); }
+    focus(i + 1, c);
+  });
+  // Collage depuis Excel / export Qubit : colonnes séparées par tabulation ou point-virgule.
+  body.addEventListener("paste", e => {
+    if (!e.target.dataset.c) return;
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (!text || !/[\t;\n]/.test(text.trim())) return;
+    e.preventDefault();
+    const ids = cols(), start = ids.indexOf(e.target.dataset.c);
+    let r = +e.target.closest("tr").dataset.i;
+    text.replace(/\r/g, "").split("\n").filter(l => l.trim() !== "").forEach(line => {
+      const cells = line.split(/\t|;/);
+      if (cells.length > 1 && cells.every(x => Number.isNaN(num(x)))) return; // ligne d'en-tête
+      if (!cur().rows[r]) cur().rows.push(blank());
+      cells.forEach((v, k) => { if (ids[start + k]) cur().rows[r][ids[start + k]] = v.trim(); });
+      r++;
+    });
+    save(); buildTable();
+  });
+  body.addEventListener("click", e => {
+    if (!e.target.classList.contains("rm")) return;
+    cur().rows.splice(+e.target.closest("tr").dataset.i, 1);
+    if (!cur().rows.length) cur().rows.push(blank());
+    save(); buildTable();
+  });
+  $("#dil-add").addEventListener("click", () => { cur().rows.push(blank()); save(); buildTable(); focus(cur().rows.length - 1, "name"); });
+  $("#dil-clear").addEventListener("click", function () {
+    if (this.dataset.sure !== "1") {
+      this.dataset.sure = "1"; this.textContent = "Tout effacer ?";
+      setTimeout(() => { this.dataset.sure = ""; this.textContent = "Vider"; }, 3000);
+      return;
+    }
+    this.dataset.sure = ""; this.textContent = "Vider";
+    cur().rows = blanks(); save(); buildTable(); focus(0, "name");
+  });
+  $("#dil-print").addEventListener("click", () => print());
+  $("#dil-copy").addEventListener("click", function () {
+    const p = params(), c = cfg(), f = v => Number.isFinite(v) ? fmt(v, 2).replace(/\s/g, "") : "";
+    const lines = [["Nom", "Conc. (ng/µL)"].concat(c.size ? ["Taille (pb)", "nM"] : [], [c.takeLabel + " (µL)", "Diluant (µL)", "Remarque"])];
+    cur().rows.forEach(row => {
+      const r = compute(row, p);
+      if (r.st === "empty") return;
+      lines.push([row.name, row.conc].concat(c.size ? [row.size || cur().params.bp, f(r.nM)] : [],
+        [f(r.v1), f(r.v2), [r.label, r.note].filter(Boolean).join(" : ")]));
+    });
+    const done = msg => { this.textContent = msg; setTimeout(() => { this.textContent = "Copier"; }, 1800); };
+    if (lines.length < 2) return done("Rien à copier");
+    const tsv = lines.map(l => l.join("\t")).join("\n");
+    (navigator.clipboard ? navigator.clipboard.writeText(tsv) : Promise.reject()).then(() => done("Copié ✓"), () => done("Copie impossible"));
+  });
+
+  const seg = $("#dil-mode");
+  function setMode(m) {
+    state.mode = m; save();
+    seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+    buildParams(); buildTable();
+  }
+  seg.addEventListener("click", e => { if (e.target.dataset.mode) setMode(e.target.dataset.mode); });
+  setMode(state.mode);
+})();
+</script>
+</body>
+</html>
